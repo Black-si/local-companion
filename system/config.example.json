@@ -1,0 +1,27 @@
+{
+  "version": "0.1.0",
+  "name": "本地部署伴生体",
+  "llm": {
+    "provider": "openai-compatible",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "model": "your-local-model",
+    "temperature": 0.7,
+    "max_tokens": 500,
+    "history_messages": 12
+  },
+  "api_llm": {
+    "enabled": false,
+    "provider": "",
+    "base_url": "https://api.example.com/v1",
+    "model": "",
+    "api_key": "",
+    "max_tokens": 300
+  },
+  "features": {
+    "desktop_pet": true,
+    "small_world": true,
+    "dreams": true,
+    "memory": true,
+    "phone_bridge": false
+  }
+}

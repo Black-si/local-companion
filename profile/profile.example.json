@@ -1,0 +1,13 @@
+{
+  "name": "你的伴生体",
+  "owner_name": "你的称呼",
+  "relationship": "由你定义",
+  "identity": "他是谁？来自哪里？平时如何生活？",
+  "personality": "他有什么性格、习惯和价值观？",
+  "speech_style": "他通常怎样说话？",
+  "boundaries": "哪些事情他不会擅自做？",
+  "appearance": {
+    "sprite": "assets/example_sprite.png",
+    "actions": {}
+  }
+}

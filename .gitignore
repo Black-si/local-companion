@@ -1,0 +1,10 @@
+memory/
+logs/
+system/config.local.json
+profile/*.local.*
+profile/assets/
+*.key
+*.secret
+*.tmp
+__pycache__/
+*.py[cod]
