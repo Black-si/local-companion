@@ -31,7 +31,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: >-
-          python -c "import tempfile; from pathlib import Path; from chen.body.internet_sense import InternetSense;
+          python -B -c "import tempfile; from pathlib import Path; from chen.body.internet_sense import InternetSense;
           root = Path(tempfile.mkdtemp()); sense = InternetSense(root, default_interests=[]);
           sense.interests = ['Python', '独立游戏']; assert sense._matched_interests('Python 新版本发布') == ['Python'];
           assert sense._matched_interests('明星八卦') == []; print('interest filter: OK')"
