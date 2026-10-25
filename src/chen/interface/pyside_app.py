@@ -441,11 +441,20 @@ class PySideShell:
 
     def _start_services(self):
         self.chen.start()
+        remote_cfg = dict((getattr(self.chen, "config", {}) or {}).get("remote", {}) or {})
+        if not bool(remote_cfg.get("enabled", False)):
+            print("[remote] 手机接口默认关闭；可在修理台的设备与连接中手动开启。")
+            return
         try:
             from .remote_server import RemoteServer
             import queue
             self.remote_queue = queue.Queue()
-            self.remote_server = RemoteServer(self.chen, self.remote_queue, port=8765)
+            self.remote_server = RemoteServer(
+                self.chen,
+                self.remote_queue,
+                port=int(remote_cfg.get("port", 8765) or 8765),
+                host=str(remote_cfg.get("host", "127.0.0.1") or "127.0.0.1"),
+            )
             self.chen.world_bridge = self.remote_server.world_bridge
             self.remote_server.start()
             if getattr(self.chen, "runtime", None):
@@ -455,6 +464,15 @@ class PySideShell:
 
     def _on_companion_profile_applied(self, profile: dict):
         from .pyside_home import load_scene_settings
+        try:
+            from .companion_profile import normalise_interest_keywords
+            interests = normalise_interest_keywords(profile.get("interests"))
+            if getattr(self.chen, "internet", None):
+                self.chen.internet.interests = interests
+            if getattr(self.chen, "hot_trends", None):
+                self.chen.hot_trends.interests = interests
+        except Exception:
+            pass
         cname = companion_name()
         self.home.setWindowTitle(f"{cname}的世界")
         self.home.settings = load_scene_settings()

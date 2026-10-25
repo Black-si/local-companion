@@ -305,8 +305,10 @@ class DecisionLoop:
                 for _ev in (_web_events or []):
                     self.chen.day_log.log("web", f"网上看到：{_ev['title']}",
                                      extra={"link": _ev.get("link", ""),
-                                            "source": _ev.get("source", "")})
-                    print(f"[互联网感知] 他注意到：{_ev['title']}")
+                                            "source": _ev.get("source", ""),
+                                            "matched_interests": _ev.get("matched_interests", [])})
+                    matched = "、".join(_ev.get("matched_interests", [])) or "已配置兴趣"
+                    print(f"[互联网感知] 命中兴趣（{matched}）：{_ev['title']}")
             except Exception as _e:
                 print(f"互联网感知异常：{_e}")
             # 记录当前活动（用于爱好统计）

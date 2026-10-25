@@ -187,7 +187,7 @@ class HotTrends:
 
     def get_relevant(self, interests=None, limit=3):
         """根据兴趣筛选相关热搜。
-        interests: 兴趣关键词列表，为空则用默认兴趣
+        interests: 兴趣关键词列表；省略时使用当前伴生体配置，空列表表示不注入通用热搜
         limit: 返回条数
         返回 (相关热搜列表, 来源)
         """
@@ -195,7 +195,7 @@ class HotTrends:
         if not all_hot:
             return [], self.data.get("source", "")
 
-        interests = interests or self.interests
+        interests = self.interests if interests is None else interests
 
         # 按兴趣关键词匹配
         relevant = []
@@ -204,12 +204,6 @@ class HotTrends:
                 if interest in title:
                     relevant.append(title)
                     break
-
-        # 如果匹配到的不够，用其他热门补充
-        if len(relevant) < limit:
-            for title in all_hot:
-                if title not in relevant and len(relevant) < limit:
-                    relevant.append(title)
 
         return relevant[:limit], self.data.get("source", "")
 

@@ -20,6 +20,7 @@ try:  # PySide6 是可选的，避免现有 Tk UI 在依赖缺失时无法启动
         QFont,
         QFontDatabase,
         QImage,
+        QLinearGradient,
         QPainter,
         QPainterPath,
         QPen,
@@ -38,7 +39,7 @@ try:  # PySide6 是可选的，避免现有 Tk UI 在依赖缺失时无法启动
 except ImportError as exc:  # pragma: no cover - exercised only without optional dependency
     PYSIDE6_ERROR = exc
     QApplication = QMainWindow = QMessageBox = QPushButton = QStackedLayout = QWidget = object
-    QRectF = QTimer = QUrl = Qt = QColor = QFont = QFontDatabase = QImage = QPainter = QPainterPath = QPen = QPixmap = object
+    QRectF = QTimer = QUrl = Qt = QColor = QFont = QFontDatabase = QImage = QLinearGradient = QPainter = QPainterPath = QPen = QPixmap = object
     Signal = lambda *a, **kw: None
     QAudioOutput = QMediaPlayer = QVideoSink = object
 
@@ -127,6 +128,34 @@ def _load_ui_font() -> str:
             except Exception:
                 pass
     return "Microsoft YaHei UI"
+
+
+def _default_background() -> QPixmap:
+    """无素材时提供一个通用的抽象房间底色，不依赖作者的照片或视频。"""
+    image = QImage(1600, 1000, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    gradient = QLinearGradient(0, 0, 0, image.height())
+    gradient.setColorAt(0.0, QColor("#252a27"))
+    gradient.setColorAt(0.58, QColor("#1b201d"))
+    gradient.setColorAt(1.0, QColor("#111411"))
+    painter.fillRect(image.rect(), gradient)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(205, 170, 112, 28))
+    painter.drawEllipse(1170, 120, 220, 220)
+    painter.setBrush(QColor(37, 43, 38, 230))
+    painter.drawRoundedRect(180, 120, 460, 330, 24, 24)
+    painter.setBrush(QColor(21, 25, 22, 210))
+    painter.drawRoundedRect(230, 170, 360, 230, 16, 16)
+    painter.setBrush(QColor(50, 55, 47, 210))
+    painter.drawRoundedRect(0, 720, 1600, 280, 0, 0)
+    painter.end()
+    return QPixmap.fromImage(image)
+
+
+def _load_background_pixmap(path: Path) -> QPixmap:
+    """加载用户/项目背景，文件缺失或损坏时回退到通用底图。"""
+    pixmap = QPixmap(str(path)) if path and path.exists() else QPixmap()
+    return pixmap if not pixmap.isNull() else _default_background()
 
 
 PERIODS = (
@@ -831,7 +860,7 @@ if PYSIDE6_ERROR is None:
             self.video_sink.videoFrameChanged.connect(self._video_frame)
             self.player.errorOccurred.connect(self._media_error)
             self.player.mediaStatusChanged.connect(self._media_status)
-            self.fallback = QPixmap(str(DEFAULT_BG)) if DEFAULT_BG.exists() else QPixmap()
+            self.fallback = _load_background_pixmap(DEFAULT_BG)
             self._scene_key = None
             self._scene_path = None
             self._loop_start_ms = 0
@@ -859,7 +888,7 @@ if PYSIDE6_ERROR is None:
                 return
             self._scene_key, self._scene_path, self._loop_start_ms = key, source, loop_start
             self._looping = False
-            self.fallback = QPixmap(str(source)) if source.suffix.lower() in IMAGE_EXT else QPixmap(str(DEFAULT_BG))
+            self.fallback = _load_background_pixmap(source if source.suffix.lower() in IMAGE_EXT else DEFAULT_BG)
             self.player.stop()
             self.video.clear_frame()
             if self.video.frame.isNull():

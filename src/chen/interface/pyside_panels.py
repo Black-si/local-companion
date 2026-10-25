@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -19,7 +21,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
         QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
-        QPlainTextEdit, QProgressBar, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
+        QPlainTextEdit, QProgressBar, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
     )
     PYSIDE6_ERROR = None
 except ImportError as exc:  # pragma: no cover
@@ -27,7 +29,7 @@ except ImportError as exc:  # pragma: no cover
     QRectF = Qt = QTimer = QColor = QImage = QPainter = QFont = object
     QApplication = QCheckBox = QDialog = QFileDialog = QFrame = QGridLayout = QHBoxLayout = QLabel = object
     QInputDialog = QLineEdit = QListWidget = QListWidgetItem = QMenu = QMessageBox = QPushButton = object
-    QPlainTextEdit = QProgressBar = QScrollArea = QStackedWidget = QVBoxLayout = QWidget = object
+    QPlainTextEdit = QProgressBar = QScrollArea = QStackedWidget = QTabWidget = QVBoxLayout = QWidget = object
 
 try:
     from .ui_tokens import get_period_theme
@@ -42,6 +44,7 @@ try:
         install_custom_pet_sprite,
         install_custom_scene_asset,
         load_companion_profile,
+        normalise_interest_keywords,
         save_and_apply_companion_profile,
     )
 except ImportError:  # pragma: no cover
@@ -57,6 +60,7 @@ except ImportError:  # pragma: no cover
         install_custom_pet_sprite,
         install_custom_scene_asset,
         load_companion_profile,
+        normalise_interest_keywords,
         save_and_apply_companion_profile,
     )
 
@@ -1173,7 +1177,8 @@ class SpacePanel(StaticPanelWindow):
         self._on_desktop = on_desktop
         self.setMinimumSize(760, 560)
         self.resize(900, 680)
-        self._runtime_notice = ""
+        self._godot_ready, self._godot_missing = self._godot_install_state()
+        self._runtime_notice = self._godot_notice() if not self._godot_ready else ""
         self._build_space_view()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -1220,10 +1225,36 @@ class SpacePanel(StaticPanelWindow):
             "看看桌面", self.open_desktop
         ), 1)
         entries.addWidget(self._build_entry(
-            "小世界", "另一个可以进入的地方；天气和活动会自己往前走。",
+            "小世界", self._world_entry_description(),
             "进入", self.toggle_world
         ), 1)
         self.content.addLayout(entries)
+
+    @staticmethod
+    def _godot_install_state():
+        """Godot 是可选渲染器；公开版缺少它时仍保留文字状态和其它功能。"""
+        if os.name != "nt":
+            return False, ["Windows Godot 房间"]
+        missing = []
+        if not GODOT_RUNTIME.exists() or not (GODOT_RUNTIME / "project.godot").exists():
+            missing.append("小世界房间文件")
+        if not GODOT_EXE.exists():
+            missing.append("Godot 运行时")
+        return not missing, missing
+
+    def _godot_notice(self):
+        if self._godot_ready:
+            return ""
+        missing = "、".join(self._godot_missing) or "Godot 房间模块"
+        return (
+            f"小世界文字状态可正常使用；可选的 {missing} 尚未安装。"
+            "聊天、桌面、桌宠和其它功能不受影响。"
+        )
+
+    def _world_entry_description(self):
+        if self._godot_ready:
+            return "另一个可以进入的地方；天气和活动会自己往前走。"
+        return "可选的画面模块。没有安装 Godot 时，这里仍可查看和记录文字状态。"
 
     def _build_trace_section(self):
         box = QFrame()
@@ -1399,7 +1430,10 @@ class SpacePanel(StaticPanelWindow):
             self.collection_hint.setText(f"收藏里一共留下了 {len(collections)} 件东西。")
         else:
             self.collection_hint.setText("以后遇到想留下的东西，可以带回来。")
-        self.world_button.setText("离开" if in_world else "进入")
+        if in_world:
+            self.world_button.setText("返回桌面")
+        else:
+            self.world_button.setText("进入小世界" if self._godot_ready else "查看文字状态")
         unread = 0
         try:
             from .pyside_virtual_desktop import desktop_unread_count
@@ -1407,8 +1441,9 @@ class SpacePanel(StaticPanelWindow):
         except Exception:
             unread = 0
         self.desktop_button.setText(f"看看桌面 · {unread} 条新内容" if unread else "看看桌面")
-        self.runtime_hint.setText(self._runtime_notice)
-        self.runtime_hint.setVisible(bool(self._runtime_notice))
+        notice = self._runtime_notice or (self._godot_notice() if not self._godot_ready else "")
+        self.runtime_hint.setText(notice)
+        self.runtime_hint.setVisible(bool(notice))
 
     def open_desktop(self):
         if callable(self._on_desktop):
@@ -1443,9 +1478,9 @@ class SpacePanel(StaticPanelWindow):
 
     def _launch_mv_runtime(self):
         if os.name != "nt":
-            return False, "当前系统不是 Windows，先保留小世界状态。"
-        if not GODOT_RUNTIME.exists() or not GODOT_EXE.exists():
-            return False, "小世界入口还在，但 Godot 房间文件暂时找不到。"
+            return False, self._godot_notice()
+        if not self._godot_ready:
+            return False, self._godot_notice()
         try:
             probe = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq Godot_v4.7.2-stable_win64.exe"],
@@ -1492,7 +1527,8 @@ class SpacePanel(StaticPanelWindow):
                 self._runtime_notice = "已经回到他的桌面。"
             else:
                 world.enter_small_world()
-                _, self._runtime_notice = self._launch_mv_runtime()
+                launched, notice = self._launch_mv_runtime()
+                self._runtime_notice = notice if launched else self._godot_notice()
         except Exception as exc:
             self._runtime_notice = f"空间状态没有更新：{exc}"
         self.refresh()
@@ -1751,6 +1787,19 @@ class WorkshopPanel(StaticPanelWindow):
             badge_key="connections",
         )
         self.connections_view = self._add_detail_text(root)
+        remote_options = QFrame()
+        remote_options.setObjectName("workshopSection")
+        remote_layout = QHBoxLayout(remote_options)
+        remote_layout.setContentsMargins(14, 9, 14, 9)
+        self._remote_enabled_check = QCheckBox("启用局域网手机接口")
+        self._remote_enabled_check.setToolTip("开启后会在局域网监听 8765 端口，并使用随机 Token 认证。")
+        self._remote_enabled_check.clicked.connect(self._set_remote_enabled)
+        self._remote_status = QLabel()
+        self._remote_status.setObjectName("workshopMuted")
+        self._remote_status.setWordWrap(True)
+        remote_layout.addWidget(self._remote_enabled_check)
+        remote_layout.addWidget(self._remote_status, 1)
+        root.addWidget(remote_options)
         actions = QHBoxLayout()
         copy_url_btn = QPushButton("复制手机端完整链接")
         copy_url_btn.setObjectName("workshopActionButton")
@@ -1765,6 +1814,18 @@ class WorkshopPanel(StaticPanelWindow):
         actions.addStretch()
         root.addLayout(actions)
         return page
+
+    def _set_remote_enabled(self, checked):
+        config = self._config()
+        remote = config.setdefault("remote", {})
+        remote["enabled"] = bool(checked)
+        # 只有用户明确打开手机接口时才暴露到局域网；默认配置只监听本机或完全关闭。
+        remote["host"] = "0.0.0.0" if checked else "127.0.0.1"
+        self._workshop_notice = (
+            "手机接口设置已保存，下次启动伴生体时生效。"
+            if self._save_config() else "手机接口设置未能写入配置文件。"
+        )
+        self.refresh()
 
     def _mobile_connection_info(self) -> tuple[str, str]:
         base_dir = Path(getattr(self.chen, "base_dir", ROOT))
@@ -1788,12 +1849,18 @@ class WorkshopPanel(StaticPanelWindow):
         return ip, token
 
     def _copy_mobile_url(self):
+        if not bool((self._config().get("remote", {}) or {}).get("enabled", False)):
+            QMessageBox.information(self, "手机接口未开启", "请先勾选“启用局域网手机接口”，再重启伴生体。")
+            return
         ip, token = self._mobile_connection_info()
         url = f"http://{ip}:8765/mobile#token={token}" if token else f"http://{ip}:8765/mobile"
         QApplication.clipboard().setText(url)
         QMessageBox.information(self, "已复制手机端链接", f"已复制到剪贴板：\n{url}\n\n在 iPhone Safari 打开即可直接进入伴生界面。")
 
     def _copy_mobile_token(self):
+        if not bool((self._config().get("remote", {}) or {}).get("enabled", False)):
+            QMessageBox.information(self, "手机接口未开启", "请先勾选“启用局域网手机接口”，再重启伴生体。")
+            return
         _ip, token = self._mobile_connection_info()
         if not token:
             QMessageBox.information(self, "快捷指令 Token", "尚未生成 remote_token.txt，请先启动一次手机服务。")
@@ -2127,6 +2194,13 @@ class WorkshopPanel(StaticPanelWindow):
 
         self._mcp_enabled_check.setChecked(enabled)
         self._mcp_autostart_check.setChecked(autostart)
+        remote = config.get("remote", {}) or {}
+        remote_enabled = bool(remote.get("enabled", False))
+        self._remote_enabled_check.setChecked(remote_enabled)
+        self._remote_status.setText(
+            "重启后在局域网监听 8765 端口。" if remote_enabled
+            else "默认关闭，不会在局域网开放端口。"
+        )
         self.mcp_summary.setText(
             (self._workshop_notice + "\n" if self._workshop_notice else "") +
             ("MCP 已启用，但所有外部动作仍需经过伴生体的工具层和权限检查。"
@@ -2149,6 +2223,7 @@ class WorkshopPanel(StaticPanelWindow):
         config = self._config()
         features = config.get("features", {}) or {}
         phone = features.get("phone_push", {}) or {}
+        remote = config.get("remote", {}) or {}
         ip, token = self._mobile_connection_info()
         ext = getattr(self.chen, "external_presence", {}) or {}
         ext_line = f"{ext.get('device', '未同步')} · {ext.get('activity', '无')}（{ext.get('updated_at', '无记录')}）" if ext.get("activity") else "尚未收到手机状态同步"
@@ -2160,6 +2235,7 @@ class WorkshopPanel(StaticPanelWindow):
             f"快捷指令状态接口：POST http://{ip}:8765/api/presence",
             f"快捷指令聊天接口：POST http://{ip}:8765/api/chat",
             f"请求头认证字段：X-Chen-Token（点击下方按钮可一键复制）",
+            f"手机接口：{'已开启（重启后生效）' if remote.get('enabled') else '默认关闭'}",
             f"最近手机同步：{ext_line}",
             f"本地推送服务：{'启用' if phone.get('enabled') else '未启用'}",
             f"小世界状态桥接：{'已注册' if getattr(self.chen, 'world_bridge', None) else '未注册'}",
@@ -2788,13 +2864,27 @@ class CompanionStudioPanel(StaticPanelWindow):
             if item.widget():
                 item.widget().deleteLater()
 
+        intro = QFrame()
+        intro.setObjectName("studioIntro")
+        intro_layout = QVBoxLayout(intro)
+        intro_layout.setContentsMargins(18, 12, 18, 12)
+        intro_layout.setSpacing(3)
+        intro_title = QLabel("先把人设写清楚，再决定要不要上传素材")
+        intro_title.setObjectName("studioIntroTitle")
+        intro_layout.addWidget(intro_title)
+        intro_hint = QLabel("没有 Godot、图片或视频也能使用桌面和本地状态；聊天需要配置一个本地模型，素材和配置都只保存在你自己的电脑里。")
+        intro_hint.setObjectName("studioIntroHint")
+        intro_hint.setWordWrap(True)
+        intro_layout.addWidget(intro_hint)
+        self.content.addWidget(intro)
+
         # 顶部通用性格框架栏（无任何伴生体设定）
         preset_bar = QFrame()
-        preset_bar.setObjectName("glass")
+        preset_bar.setObjectName("studioPresetBar")
         pb_layout = QHBoxLayout(preset_bar)
-        pb_layout.setContentsMargins(18, 10, 18, 10)
-        pb_layout.setSpacing(8)
-        pb_label = QLabel("性格框架模板：")
+        pb_layout.setContentsMargins(14, 8, 14, 8)
+        pb_layout.setSpacing(6)
+        pb_label = QLabel("快速开始")
         pb_label.setObjectName("studioSectionTitle")
         pb_layout.addWidget(pb_label)
         self._preset_btns: dict[str, QPushButton] = {}
@@ -2818,11 +2908,23 @@ class CompanionStudioPanel(StaticPanelWindow):
         pb_layout.addWidget(btn_export)
         self.content.addWidget(preset_bar)
 
-        split = QHBoxLayout()
-        split.setSpacing(14)
-        split.addWidget(self._build_identity_column(), 46)
-        split.addWidget(self._build_upload_and_brain_column(), 54)
-        self.content.addLayout(split, 1)
+        tabs = QTabWidget()
+        tabs.setObjectName("studioTabs")
+        tabs.setDocumentMode(True)
+        tabs.addTab(self._build_identity_column(), "① 人设与兴趣")
+        tabs.addTab(self._build_upload_and_brain_column(), "② 场景与桌宠")
+        self.content.addWidget(tabs, 1)
+
+        self.status_notice = QLabel("填好人设后即可保存；图片和 Godot 都是可选项。")
+        self.status_notice.setObjectName("studioNotice")
+        self.status_notice.setWordWrap(True)
+        self.content.addWidget(self.status_notice)
+
+        save_btn = QPushButton("保存设置并启动我的伴生体")
+        save_btn.setObjectName("studioPrimaryBtn")
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.clicked.connect(self.save_and_apply)
+        self.content.addWidget(save_btn)
 
     def _build_identity_column(self):
         card = QFrame()
@@ -2840,6 +2942,7 @@ class CompanionStudioPanel(StaticPanelWindow):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         holder = QWidget()
+        holder.setObjectName("studioHolder")
         form = QVBoxLayout(holder)
         form.setContentsMargins(0, 2, 6, 4)
         form.setSpacing(8)
@@ -2877,6 +2980,10 @@ class CompanionStudioPanel(StaticPanelWindow):
         )
         form.addWidget(self.traits_edit, 1)
 
+        self.interests_edit = QLineEdit()
+        self.interests_edit.setPlaceholderText("例如：独立游戏、摄影、科幻、编程（用逗号或顿号分隔）")
+        form.addLayout(self._labeled_field("兴趣关键词 · 互联网感知只筛这些", self.interests_edit))
+
         self.boundary_check = QCheckBox("启用本地数字伴生体真实边界（不编造人类童年，不声称看见未发送内容）")
         self.boundary_check.setChecked(True)
         form.addWidget(self.boundary_check)
@@ -2910,6 +3017,18 @@ class CompanionStudioPanel(StaticPanelWindow):
         self.ft_check = QCheckBox("启用微调极简 Prompt 模式（finetuned_mode）")
         form.addWidget(self.ft_check)
 
+        model_actions = QHBoxLayout()
+        self.model_status = QLabel("聊天需要本地模型服务；填好地址后可以测试连接。")
+        self.model_status.setObjectName("studioModelStatus")
+        self.model_status.setWordWrap(True)
+        model_actions.addWidget(self.model_status, 1)
+        test_model_btn = QPushButton("测试模型连接")
+        test_model_btn.setObjectName("studioMiniBtn")
+        test_model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        test_model_btn.clicked.connect(self.test_model_connection)
+        model_actions.addWidget(test_model_btn)
+        form.addLayout(model_actions)
+
         # 隐藏保留云端地址字段以保持配置兼容
         self.cloud_url_edit = QLineEdit("https://api.deepseek.com/v1")
         self.cloud_model_edit = QLineEdit("deepseek-chat")
@@ -2934,6 +3053,7 @@ class CompanionStudioPanel(StaticPanelWindow):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         holder = QWidget()
+        holder.setObjectName("studioHolder")
         form = QVBoxLayout(holder)
         form.setContentsMargins(0, 2, 6, 4)
         form.setSpacing(8)
@@ -3010,20 +3130,10 @@ class CompanionStudioPanel(StaticPanelWindow):
             pet_grid.addWidget(p_card, idx // 2, idx % 2)
         form.addLayout(pet_grid)
 
-        self.status_notice = QLabel("填写属于你的伴生体名字并上传图片后，点击下方按钮立即生效。")
-        self.status_notice.setObjectName("studioNotice")
-        self.status_notice.setWordWrap(True)
-        form.addWidget(self.status_notice)
         form.addStretch()
 
         scroll.setWidget(holder)
         outer.addWidget(scroll, 1)
-
-        save_btn = QPushButton("保存人设与素材 · 启动我的专属伴生体")
-        save_btn.setObjectName("studioPrimaryBtn")
-        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.clicked.connect(self.save_and_apply)
-        outer.addWidget(save_btn)
         return card
 
     @staticmethod
@@ -3051,6 +3161,29 @@ class CompanionStudioPanel(StaticPanelWindow):
             refresh_open_backgrounds()
         except Exception as exc:
             QMessageBox.warning(self, "上传失败", f"无法导入画面文件：{exc}")
+
+    def test_model_connection(self):
+        """读取 OpenAI 兼容服务的模型列表，避免用户保存后才发现地址不可用。"""
+        base_url = self.local_url_edit.text().strip().rstrip("/")
+        if not base_url:
+            self.model_status.setText("请先填写本地推理服务地址。")
+            return
+        endpoint = f"{base_url}/models"
+        try:
+            request = urllib.request.Request(endpoint, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read(512 * 1024).decode("utf-8"))
+            models = payload.get("data", []) if isinstance(payload, dict) else []
+            model_ids = [str(item.get("id", "")).strip() for item in models if isinstance(item, dict)]
+            model_ids = [item for item in model_ids if item]
+            if model_ids:
+                if not self.local_model_edit.text().strip():
+                    self.local_model_edit.setText(model_ids[0])
+                self.model_status.setText(f"连接成功，发现 {len(model_ids)} 个模型；当前使用：{self.local_model_edit.text().strip()}")
+            else:
+                self.model_status.setText("服务已响应，但没有返回可用模型名。请检查模型是否已加载。")
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            self.model_status.setText(f"暂时连不上模型服务：{type(exc).__name__}。聊天仍可打开，配置好后再测试。")
 
     def upload_pet_slot(self, state_key: str):
         path, _ = QFileDialog.getOpenFileName(
@@ -3133,10 +3266,18 @@ class CompanionStudioPanel(StaticPanelWindow):
         self.stage_edit.setText(str(data.get("relationship_stage") or "初识的伴生体"))
         self.role_edit.setText(str(data.get("age_and_role") or ""))
         self.traits_edit.setPlainText(str(data.get("personality_traits") or ""))
+        interests = normalise_interest_keywords(data.get("interests"))
+        self.interests_edit.setText("、".join(interests))
         self.boundary_check.setChecked(bool(data.get("strict_digital_boundary", True)))
         self.local_url_edit.setText(str(data.get("local_llm_url") or "http://127.0.0.1:1234/v1"))
         self.local_model_edit.setText(str(data.get("local_llm_model") or ""))
         self.ft_check.setChecked(bool(data.get("finetuned_mode", False)))
+        if hasattr(self, "model_status"):
+            self.model_status.setText(
+                "聊天需要本地模型服务；填好地址后可以测试连接。"
+                if not self.local_model_edit.text().strip()
+                else f"当前模型：{self.local_model_edit.text().strip()}（可点击测试连接）"
+            )
 
     def _collect_fields(self) -> dict:
         checked_pid = next((k for k, b in self._preset_btns.items() if b.isChecked()), "blank_custom")
@@ -3148,6 +3289,7 @@ class CompanionStudioPanel(StaticPanelWindow):
             "relationship_stage": self.stage_edit.text().strip() or "初识的伴生体",
             "age_and_role": self.role_edit.text().strip(),
             "personality_traits": self.traits_edit.toPlainText().strip(),
+            "interests": normalise_interest_keywords(self.interests_edit.text()),
             "strict_digital_boundary": self.boundary_check.isChecked(),
             "local_llm_url": self.local_url_edit.text().strip() or "http://127.0.0.1:1234/v1",
             "local_llm_model": self.local_model_edit.text().strip(),
@@ -3196,6 +3338,72 @@ class CompanionStudioPanel(StaticPanelWindow):
         t = self._theme
         border_c = t.get("border", t["muted"])
         return super()._stylesheet() + f"""
+        QFrame#studioIntro {{
+            background: {_rgba(t['accent'], 22)};
+            border: 1px solid {_rgba(t['accent'], 92)};
+            border-radius: 14px;
+        }}
+        QLabel#studioIntroTitle {{
+            color: rgb{t['text']};
+            font-size: 11.5pt;
+            font-weight: 600;
+        }}
+        QLabel#studioIntroHint {{
+            color: rgb{t['muted']};
+            font-size: 9pt;
+        }}
+        QFrame#studioPresetBar {{
+            background: {_rgba(t['tint'], 180)};
+            border: 1px solid {_rgba(border_c, 100)};
+            border-radius: 12px;
+        }}
+        QTabWidget#studioTabs {{
+            background: transparent;
+        }}
+        QTabWidget#studioTabs::pane {{
+            background: transparent;
+            border: 1px solid {_rgba(border_c, 110)};
+            border-radius: 14px;
+            top: -1px;
+        }}
+        QTabBar::tab {{
+            background: {_rgba(t['tint'], 170)};
+            color: rgb{t['muted']};
+            border: 1px solid {_rgba(border_c, 100)};
+            border-bottom: none;
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
+            padding: 7px 16px;
+            margin-right: 4px;
+        }}
+        QTabBar::tab:selected {{
+            background: {_rgba(t['accent'], 55)};
+            color: rgb{t['text']};
+            border-color: rgb{t['accent']};
+            font-weight: 600;
+        }}
+        QScrollArea#studioScroll, QScrollArea {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollArea > QWidget > QWidget#studioHolder {{
+            background: transparent;
+        }}
+        QCheckBox {{
+            color: rgb{t['muted']};
+            spacing: 7px;
+        }}
+        QCheckBox::indicator {{
+            width: 15px;
+            height: 15px;
+            border: 1px solid {_rgba(border_c, 150)};
+            border-radius: 4px;
+            background: {_rgba(t['tint'], 180)};
+        }}
+        QCheckBox::indicator:checked {{
+            background: rgb{t['accent']};
+            border-color: rgb{t['accent']};
+        }}
         QLabel#studioSectionTitle {{
             color: rgb{t['text']};
             font-size: 11.5pt;
@@ -3244,6 +3452,10 @@ class CompanionStudioPanel(StaticPanelWindow):
             color: rgb{t['accent']};
             font-size: 9.2pt;
             padding: 4px 0;
+        }}
+        QLabel#studioModelStatus {{
+            color: rgb{t['muted']};
+            font-size: 8.8pt;
         }}
         QLineEdit {{
             background: {_rgba(t['tint'], 190)};
