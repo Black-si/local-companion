@@ -1,10 +1,12 @@
+# User and runtime data: never commit local companion content.
 memory/
 logs/
-system/config.local.json
-profile/*.local.*
-profile/assets/
-*.key
-*.secret
-*.tmp
-__pycache__/
-*.py[cod]
+workspace/
+system/companion_profile.json
+system/permissions.json
+core/custom_companion.txt
+assets/pet/*.png
+assets/pet/*.webp
+assets/scenes/*
+!assets/pet/README.md
+!assets/scenes/README.md

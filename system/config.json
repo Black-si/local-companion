@@ -1,0 +1,23 @@
+{
+  "model_server": {
+    "enabled": false,
+    "server_path": "",
+    "model_path": ""
+  },
+  "llm": {
+    "provider": "openai_compatible",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "model": "",
+    "finetuned_mode": false,
+    "disable_thinking": true
+  },
+  "api_llm": {
+    "enabled": false,
+    "base_url": "",
+    "model": "",
+    "api_key": ""
+  },
+  "features": {
+    "perception": false
+  }
+}
