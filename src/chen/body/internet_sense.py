@@ -43,12 +43,13 @@ DEFAULT_INTERESTS = ["AI", "人工智能", "大模型", "游戏", "Steam", "编�
 class InternetSense:
     """白名单 RSS 感知器。maybe_run() 到点才抓，返回本次新注意到的事件列表。"""
 
-    def __init__(self, memory_dir):
+    def __init__(self, memory_dir, *, default_interests=None):
         d = Path(memory_dir)
         self.feeds_file = d / "rss_feeds.json"
         self.interests_file = d / "rss_interests.json"
         self.seen_file = d / "rss_seen.json"
         self.state_file = d / "internet_sense.json"
+        self.default_interests = list(default_interests) if default_interests is not None else list(DEFAULT_INTERESTS)
         self.state = {"last_check": "", "last_try": ""}
         self._load_jsons()
 
@@ -74,7 +75,11 @@ class InternetSense:
 
     def _load_jsons(self):
         self.feeds = self._read_json(self.feeds_file, None) or DEFAULT_FEEDS
-        self.interests = self._read_json(self.interests_file, None) or DEFAULT_INTERESTS
+        configured = self._read_json(self.interests_file, None)
+        if isinstance(configured, list):
+            self.interests = [str(item).strip()[:24] for item in configured if str(item).strip()]
+        else:
+            self.interests = list(self.default_interests)
         self.seen = self._read_json(self.seen_file, []) or []
         st = self._read_json(self.state_file, {})
         if isinstance(st, dict):
@@ -118,7 +123,9 @@ class InternetSense:
                 continue
             if it["link"]:
                 new_seen.append(it["link"])
-            if self._is_notable(it["title"]):
+            matched = self._matched_interests(it["title"])
+            if matched:
+                it["matched_interests"] = matched
                 events.append(it)
         self._mark_seen(new_seen)
         self.state["last_check"] = now.isoformat(timespec="seconds")
@@ -189,13 +196,14 @@ class InternetSense:
 
     # ---------- 本地筛选 ----------
 
-    def _is_notable(self, title):
-        """命中任一兴趣关键词才算"他注意到的"。V1 纯本地，无 LLM。"""
+    def _matched_interests(self, title):
+        """返回标题命中的兴趣；空兴趣意味着不产生互联网感知事件。"""
         t = title or ""
-        for kw in self.interests:
-            if kw and kw in t:
-                return True
-        return False
+        return [kw for kw in self.interests if kw and kw in t]
+
+    def _is_notable(self, title):
+        """兼容旧调用：标题命中任一兴趣才算伴生体注意到。"""
+        return bool(self._matched_interests(title))
 
 
 if __name__ == "__main__":

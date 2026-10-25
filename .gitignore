@@ -1,4 +1,7 @@
 # User and runtime data: never commit local companion content.
+__pycache__/
+*.py[cod]
+*.tmp
 memory/
 logs/
 workspace/

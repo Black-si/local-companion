@@ -115,10 +115,11 @@ class RemoteServer:
     MAX_CHAT_CHARS = 12000
     REQUESTS_PER_MINUTE = 60
 
-    def __init__(self, chen, ui_queue, port=8765, token=None):
+    def __init__(self, chen, ui_queue, port=8765, token=None, host="0.0.0.0"):
         self.chen = chen
         self.ui_queue = ui_queue
         self.port = port
+        self.host = str(host or "0.0.0.0")
         self._server = None
         self._chat_lock = getattr(chen, "_chat_lock", None) or threading.RLock()
         self._rate_lock = threading.Lock()
@@ -150,7 +151,7 @@ class RemoteServer:
 
     def start(self):
         handler = self._make_handler()
-        self._server = _BoundedHTTPServer(("0.0.0.0", self.port), handler)
+        self._server = _BoundedHTTPServer((self.host, self.port), handler)
         self.port = self._server.server_address[1]
         t = threading.Thread(target=self._server.serve_forever, daemon=True, name="chen-remote")
         t.start()

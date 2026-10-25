@@ -73,7 +73,8 @@ class Environment:
         # 热搜（他"注意到外面"的来源之一）
         try:
             if self.hot_trends:
-                titles, source = self.hot_trends.get_all(limit=5)
+                # 互联网标题只有命中伴生体自己的兴趣时才进入环境快照。
+                titles, source = self.hot_trends.get_relevant(limit=5)
                 snap["trends"] = titles or []
                 snap["trends_source"] = source or ""
         except Exception:

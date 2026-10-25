@@ -1,0 +1,46 @@
+name: Public companion checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python sources
+        run: >-
+          python -c "import pathlib; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in pathlib.Path('src').rglob('*.py')]"
+
+      - name: Run pure Python smoke check
+        env:
+          PYTHONPATH: src
+        run: python -B src/chen/body/internet_sense.py
+
+      - name: Verify public defaults and repository hygiene
+        shell: pwsh
+        run: |
+          $config = Get-Content system/config.json -Raw | ConvertFrom-Json
+          if ($config.remote.enabled -ne $false) { throw "remote must be disabled by default" }
+          if ($config.features.phone_push.enabled -ne $false) { throw "phone push must be disabled by default" }
+          if ($config.autonomy.enabled -ne $false) { throw "autonomy must be disabled by default" }
+          $bad = Get-ChildItem -Recurse -File | Where-Object {
+            $_.FullName -match '\\(memory|workspace|logs)\\' -or
+            $_.Extension -eq '.pyc' -or $_.Name -like '*.tmp'
+          }
+          if ($bad) { $bad | ForEach-Object { Write-Host $_.FullName }; throw "runtime artifacts are tracked" }

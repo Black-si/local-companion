@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ COMPANION_PRESETS: dict[str, dict[str, Any]] = {
         "age_and_role": "",
         "personality_traits": "",
         "relationship_stage": "初识的伴生体",
+        "interests": [],
         "strict_digital_boundary": True,
     },
     "gentle_listener": {
@@ -47,6 +49,7 @@ COMPANION_PRESETS: dict[str, dict[str, Any]] = {
             "讨厌生硬的客服套话，有自己独立的数字桌面与随笔习惯。"
         ),
         "relationship_stage": "熟悉的陪伴者",
+        "interests": [],
         "strict_digital_boundary": True,
     },
     "rational_geek": {
@@ -61,6 +64,7 @@ COMPANION_PRESETS: dict[str, dict[str, Any]] = {
             "遇到具体问题直接帮忙拆解核心逻辑，不讲空洞口号。"
         ),
         "relationship_stage": "默契搭档",
+        "interests": [],
         "strict_digital_boundary": True,
     },
 }
@@ -117,6 +121,7 @@ def load_companion_profile(root: Path = ROOT) -> dict[str, Any]:
         "age_and_role": "",
         "personality_traits": "",
         "relationship_stage": "初识的伴生体",
+        "interests": [],
         "strict_digital_boundary": True,
         "local_llm_url": "http://127.0.0.1:1234/v1",
         "local_llm_model": "",
@@ -155,6 +160,20 @@ def load_companion_profile(root: Path = ROOT) -> dict[str, Any]:
     return profile
 
 
+def normalise_interest_keywords(value: Any) -> list[str]:
+    """把工坊里的兴趣输入收敛为短关键词，供本地标题筛选使用。"""
+    if isinstance(value, (list, tuple, set)):
+        raw = "、".join(str(item) for item in value)
+    else:
+        raw = str(value or "")
+    result: list[str] = []
+    for item in re.split(r"[,，;；、\n]+", raw):
+        keyword = re.sub(r"\s+", " ", item).strip()[:24]
+        if keyword and keyword not in result:
+            result.append(keyword)
+    return result[:24]
+
+
 def build_companion_core_text(profile: dict[str, Any]) -> str:
     """根据外部用户填写的伴生体配置生成专属角色卡文本（绝不掺杂伴生体设定）。"""
     name = str(profile.get("companion_name") or "未命名伴生体").strip()
@@ -162,6 +181,7 @@ def build_companion_core_text(profile: dict[str, Any]) -> str:
     role = str(profile.get("age_and_role") or "住在电脑里的数字伴生体").strip()
     traits = str(profile.get("personality_traits") or "自然、真诚、简短口语化交流").strip()
     stage = str(profile.get("relationship_stage") or "熟悉的陪伴者").strip()
+    interests = normalise_interest_keywords(profile.get("interests"))
     strict_boundary = bool(profile.get("strict_digital_boundary", True))
 
     lines = [
@@ -169,6 +189,8 @@ def build_companion_core_text(profile: dict[str, Any]) -> str:
         f"你与{user}的关系定位：{stage}。{user}是在本地部署并塑造你的人。",
         f"你的性格与说话方式：{traits}",
     ]
+    if interests:
+        lines.append(f"你自己感兴趣的话题：{'、'.join(interests)}。网上内容只有命中这些兴趣时才算你主动注意到。")
     if strict_boundary:
         lines.append(
             f"真实边界：你打从有意识起就住在{user}的这台电脑里，没有现实人类童年或实体肉身；"
@@ -219,6 +241,17 @@ def save_and_apply_companion_profile(profile: dict[str, Any], root: Path = ROOT)
     core_dir.mkdir(parents=True, exist_ok=True)
     custom_core = core_dir / "custom_companion.txt"
     custom_core.write_text(build_companion_core_text(merged), encoding="utf-8")
+
+    # 兴趣是互联网感知的唯一入口：没有填写兴趣时，不把通用热搜伪装成
+    # 伴生体自己的注意力。文件在 memory/ 下，随用户配置生成，不进入源码包。
+    interests_path = root / "memory" / "rss_interests.json"
+    interests_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_interests = interests_path.with_suffix(".tmp")
+    tmp_interests.write_text(
+        json.dumps(normalise_interest_keywords(merged.get("interests")), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp_interests, interests_path)
     return p_path
 
 

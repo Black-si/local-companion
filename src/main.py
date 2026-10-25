@@ -238,6 +238,13 @@ class Chen:
         try:
             from chen.body.hot_trends import HotTrends
             self.hot_trends = HotTrends(self.base_dir / "memory")
+            from chen.interface.companion_profile import (
+                load_companion_profile, normalise_interest_keywords,
+            )
+            profile_interests = normalise_interest_keywords(
+                load_companion_profile(self.base_dir).get("interests")
+            )
+            self.hot_trends.interests = profile_interests
         except Exception as _e:
             print(f"热搜模块初始化失败：{_e}")
             self.hot_trends = None
@@ -250,7 +257,20 @@ class Chen:
             external_presence=lambda: self.external_presence)
         self.music = MusicBridge(self.base_dir / "memory")
         from chen.body.internet_sense import InternetSense
-        self.internet = InternetSense(self.base_dir / "memory")
+        try:
+            from chen.interface.companion_profile import (
+                load_companion_profile, normalise_interest_keywords,
+            )
+            profile_interests = normalise_interest_keywords(
+                load_companion_profile(self.base_dir).get("interests")
+            )
+        except Exception:
+            profile_interests = []
+        self.internet = InternetSense(
+            self.base_dir / "memory", default_interests=profile_interests
+        )
+        # 角色卡是当前配置的来源；避免旧运行目录里的 rss_interests.json 覆盖新选择。
+        self.internet.interests = profile_interests
 
     def _init_interfaces(self):
         """初始化接口层：手机推送和可选的桌面 UI 挂载点。"""
@@ -2071,12 +2091,17 @@ class Chen:
             )
             self._memory_worker.start()
 
-        # 启动决策心跳线程
-        if self._decision_worker is None or not self._decision_worker.is_alive():
+        # 未配置本地模型时不要启动每分钟一次的后台意识循环，避免首次运行
+        # 不断请求不存在的服务；配置模型并重启后再恢复完整生命循环。
+        model_ready = bool(str(getattr(self.llm, "base_url", "")).strip()
+                          and str(getattr(self.llm, "model", "")).strip())
+        if model_ready and (self._decision_worker is None or not self._decision_worker.is_alive()):
             self._decision_worker = threading.Thread(
                 target=self._decision_loop, daemon=True, name="chen-decision"
             )
             self._decision_worker.start()
+        elif not model_ready:
+            print("[runtime] 尚未配置本地模型，后台意识循环暂不启动；配置后重启即可。")
 
         if self.perception:
             self.perception.start_monitoring()
@@ -2163,6 +2188,10 @@ if __name__ == "__main__":
     # 锁文件只用于诊断；Windows 命名互斥体负责真正阻止双开，避免旧实例
     # 退出时误删新实例的锁文件，或 PID 被系统回收后产生误判。
     _instance_mutex = None
+    # 公开版与旧私有版使用不同互斥体；可用环境变量覆盖，方便并行调试多个副本。
+    _instance_mutex_name = os.getenv(
+        "CHEN_INSTANCE_NAME", "Local\\Chen_PublicCompanion_SingleInstance"
+    )
 
     def _acquire_instance_mutex():
         if os.name != "nt":
@@ -2170,7 +2199,7 @@ if __name__ == "__main__":
         try:
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             kernel32.CreateMutexW.restype = ctypes.c_void_p
-            handle = kernel32.CreateMutexW(None, False, "Local\\Chen_0_3_SingleInstance")
+            handle = kernel32.CreateMutexW(None, False, _instance_mutex_name)
             if not handle:
                 return True
             if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS

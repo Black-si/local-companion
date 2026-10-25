@@ -17,7 +17,18 @@
     "model": "",
     "api_key": ""
   },
+  "remote": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8765
+  },
   "features": {
-    "perception": false
+    "perception": false,
+    "phone_push": {
+      "enabled": false
+    }
+  },
+  "autonomy": {
+    "enabled": false
   }
 }
